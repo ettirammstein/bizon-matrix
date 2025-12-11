@@ -1,0 +1,27 @@
+name: Build & Deploy WASM
+
+on:
+  push:
+    branches: [main, master]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        targets: wasm32-unknown-unknown
+    
+    - name: Build WASM
+      run: |
+        cd contract
+        cargo build --target wasm32-unknown-unknown --release
+    
+    - name: Upload WASM artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: bizon_matrix
+        path: contract/target/wasm32-unknown-unknown/release/bizon_matrix.wasm
