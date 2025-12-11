@@ -1,0 +1,11 @@
+[package]
+name = "bizon_matrix"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+name = "bizon_matrix"
+
+[dependencies]
+near-sdk = "5.0.0"
