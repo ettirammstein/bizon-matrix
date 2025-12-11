@@ -5,7 +5,7 @@ edition = "2021"
 
 [lib]
 crate-type = ["cdylib"]
-name = "bizon_matrix"
 
 [dependencies]
-near-sdk = "5.0"
+near-sdk = { version = "5.0", features = ["legacy"] }
+borsh = "1.6"
