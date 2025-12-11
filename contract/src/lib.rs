@@ -265,8 +265,8 @@ impl BizonMatrix {
         self.account_to_id.get(&caller)
     }
 
-    pub fn disable_owner(&mut self) {
+        pub fn disable_owner(&mut self) {
         assert_eq!(env::predecessor_account_id(), self.owner_id, "Not owner");
         self.owner_id = "system".parse().unwrap();
     }
-            }
+}
