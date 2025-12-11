@@ -7,5 +7,5 @@ edition = "2021"
 crate-type = ["cdylib"]
 
 [dependencies]
-near-sdk = { version = "5.0", features = ["legacy"] }
-borsh = "1.6"
+near-sdk = "4.1"
+borsh = "0.10"
