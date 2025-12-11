@@ -15,7 +15,7 @@ pub enum StorageKey {
     AccountToId,
 }
 
-#[derive(BorshDeserialize, BorshSerialize)]
+#[derive(BorshDeserialize, BorshSerialize, Clone)]
 pub struct Player {
     pub bizon_id: BizonId,
     pub referrer: Option<AccountId>,
@@ -105,9 +105,10 @@ impl BizonMatrix {
     pub fn set_reinvest_rate(&mut self, rate: u8) {
         assert!(rate <= 100, "Rate must be 0-100");
         let caller = env::predecessor_account_id();
-        let mut p = self.players.get(&caller).expect("Not a player");
-        p.reinvest_rate = rate;
-        self.players.insert(&caller, &p);
+        if let Some(mut p) = self.players.get(&caller) {
+            p.reinvest_rate = rate;
+            self.players.insert(&caller, &p);
+        }
     }
 
     fn split_deposit(&mut self, one_near: u128) {
@@ -200,11 +201,13 @@ impl BizonMatrix {
     pub fn distribute_daily(&mut self) {
         let now = env::block_timestamp();
         let day_ns: u64 = 86_400_000_000_000;
-        assert!(
-            now - self.last_daily_ts > day_ns,
-            "Daily already distributed"
-        );
+        
         assert!(self.total_players > 0, "No players");
+        
+        if now < self.last_daily_ts + day_ns {
+            return;
+        }
+        
         if self.daily_pool == 0 {
             self.last_daily_ts = now;
             return;
@@ -218,9 +221,16 @@ impl BizonMatrix {
             return;
         }
 
-        for (acc, mut p) in self.players.iter() {
-            p.pending_balance += share;
-            self.players.insert(&acc, &p);
+        let mut accounts = Vec::new();
+        for (acc, _) in self.players.iter() {
+            accounts.push(acc);
+        }
+
+        for acc in accounts {
+            if let Some(mut p) = self.players.get(&acc) {
+                p.pending_balance += share;
+                self.players.insert(&acc, &p);
+            }
         }
 
         self.daily_pool = 0;
@@ -229,14 +239,17 @@ impl BizonMatrix {
 
     pub fn claim_all(&mut self) -> U128 {
         let caller = env::predecessor_account_id();
-        let mut p = self.players.get(&caller).expect("Not a player");
-        let amount = p.pending_balance;
-        assert!(amount > 0, "Nothing to claim");
+        if let Some(mut p) = self.players.get(&caller) {
+            let amount = p.pending_balance;
+            assert!(amount > 0, "Nothing to claim");
 
-        p.pending_balance = 0;
-        self.players.insert(&caller, &p);
-        Promise::new(caller.clone()).transfer(amount);
-        U128(amount)
+            p.pending_balance = 0;
+            self.players.insert(&caller, &p);
+            Promise::new(caller).transfer(amount);
+            U128(amount)
+        } else {
+            U128(0)
+        }
     }
 
     pub fn get_my_profile(&self) -> Option<(BizonId, u8, u32, u8, U128)> {
@@ -254,6 +267,6 @@ impl BizonMatrix {
 
     pub fn disable_owner(&mut self) {
         assert_eq!(env::predecessor_account_id(), self.owner_id, "Not owner");
-        self.owner_id = "".parse().unwrap();
+        self.owner_id = "system".parse().unwrap();
     }
 }
