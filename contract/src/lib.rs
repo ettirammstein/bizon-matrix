@@ -5,7 +5,7 @@ use near_sdk::borsh::{self, BorshDeserialize, BorshSerialize};
 use near_sdk::collections::UnorderedMap;
 use near_sdk::json_types::U128;
 
-pub type BizonId = String; // "ID1", "ID2", ...
+pub type BizonId = String;
 
 #[derive(BorshStorageKey, BorshSerialize)]
 pub enum StorageKey {
@@ -15,44 +15,33 @@ pub enum StorageKey {
     AccountToId,
 }
 
-// Профиль игрока
 #[derive(BorshDeserialize, BorshSerialize)]
 pub struct Player {
-    pub bizon_id: BizonId,          // "ID7"
-    pub referrer: Option<AccountId>,// кто пригласил (разрешённый аккаунт)
-    pub join_ts: u64,               // когда зашёл
-    pub level: u8,                  // сколько раз закрыл базовую матрицу (0–10)
-    pub cycles: u32,                // сколько раз сделал x10 (глобальные циклы)
-    pub pending_balance: u128,      // всё, что можно забрать через claim_all
-    pub reinvest_rate: u8,          // 0–100 (% от дохода в авто-реинвест)
+    pub bizon_id: BizonId,
+    pub referrer: Option<AccountId>,
+    pub join_ts: u64,
+    pub level: u8,
+    pub cycles: u32,
+    pub pending_balance: u128,
+    pub reinvest_rate: u8,
 }
 
 #[near_bindgen]
 #[derive(BorshDeserialize, BorshSerialize, PanicOnDefault)]
 pub struct BizonMatrix {
-    // Игроки и их состояние
     pub players: UnorderedMap<AccountId, Player>,
-
-    // Заполненность локальных матриц (0–10)
     pub matrix_fill: UnorderedMap<AccountId, u8>,
-
-    // Глобальные BIZON ID
     pub id_to_account: UnorderedMap<BizonId, AccountId>,
     pub account_to_id: UnorderedMap<AccountId, BizonId>,
     pub next_id: u64,
-
-    // Пулы (в yocto NEAR)
-    pub daily_pool: u128,   // 90% входов
-    pub monthly_pool: u128, // 9% входов
-    pub yearly_pool: u128,  // 1% входов
-    pub global_pool: u128,  // остатки, не розданные очередью/иксами
-
+    pub daily_pool: u128,
+    pub monthly_pool: u128,
+    pub yearly_pool: u128,
+    pub global_pool: u128,
     pub total_players: u64,
-
     pub last_daily_ts: u64,
     pub last_monthly_ts: u64,
     pub last_yearly_ts: u64,
-
     pub owner_id: AccountId,
 }
 
@@ -79,31 +68,21 @@ impl BizonMatrix {
         }
     }
 
-    /// Вход всегда = 1 NEAR.
-    /// ref_raw может быть:
-    /// - "ID7"
-    /// - "user.testnet"
-    /// (на мейне ещё: "user.near" / "user.tg")
     #[payable]
     pub fn join(&mut self, ref_raw: Option<String>) {
         let caller = env::predecessor_account_id();
         let deposit = env::attached_deposit();
-
         let one_near: u128 = 1_000_000_000_000_000_000_000_000;
         assert_eq!(deposit, one_near, "Need exactly 1 NEAR to join");
 
-        // Присваиваем/находим BIZON ID
         let bizon_id = self.ensure_bizon_id(&caller);
-
-        // Делим 1 NEAR на 90/9/1, остальное в global_pool (если что-то останется/округление)
         self.split_deposit(one_near);
 
-        // Если новый игрок — создаём профиль
         if !self.players.contains_key(&caller) {
             let ref_acc = ref_raw
                 .as_ref()
                 .and_then(|r| self.resolve_ref(r))
-                .filter(|acc| acc != &caller); // без саморефа
+                .filter(|acc| acc != &caller);
 
             let p = Player {
                 bizon_id: bizon_id.clone(),
@@ -112,19 +91,17 @@ impl BizonMatrix {
                 level: 0,
                 cycles: 0,
                 pending_balance: 0,
-                reinvest_rate: 0, // по умолчанию всё на вывод
+                reinvest_rate: 0,
             };
             self.players.insert(&caller, &p);
             self.matrix_fill.insert(&caller, &0);
             self.total_players += 1;
         }
 
-        // SMART SPILL — новый вход увеличивает заполненность самой пустой матрицы
         let emptiest_owner = self.find_emptiest_matrix();
         self.apply_spill(&emptiest_owner);
     }
 
-    /// Настройка агрессивности реинвеста (0–100%)
     pub fn set_reinvest_rate(&mut self, rate: u8) {
         assert!(rate <= 100, "Rate must be 0-100");
         let caller = env::predecessor_account_id();
@@ -133,7 +110,6 @@ impl BizonMatrix {
         self.players.insert(&caller, &p);
     }
 
-    /// Раздел 1 NEAR на 90%/9%/1% + остаток в global_pool.
     fn split_deposit(&mut self, one_near: u128) {
         let daily = one_near * 90 / 100;
         let monthly = one_near * 9 / 100;
@@ -149,7 +125,6 @@ impl BizonMatrix {
         }
     }
 
-    /// BIZON ID для аккаунта
     fn ensure_bizon_id(&mut self, account: &AccountId) -> BizonId {
         if let Some(id) = self.account_to_id.get(account) {
             return id;
@@ -161,21 +136,17 @@ impl BizonMatrix {
         id_str
     }
 
-    /// Разбор рефки: "IDx" или "*.testnet" (позже "*.near" / "*.tg")
-    fn resolve_ref(&self, raw: &String) -> Option<AccountId> {
-        // BIZON ID
+    fn resolve_ref(&self, raw: &str) -> Option<AccountId> {
         if raw.starts_with("ID") {
-            if let Some(acc) = self.id_to_account.get(raw) {
+            if let Some(acc) = self.id_to_account.get(&raw.to_string()) {
                 return Some(acc);
             }
         }
 
-        // TG алиасы будем обрабатывать на мейне через HOT-резолвер
         if raw.ends_with(".tg") {
             return None;
         }
 
-        // NEAR / TESTNET аккаунт
         if raw.ends_with(".near") || raw.ends_with(".testnet") {
             return raw.parse().ok();
         }
@@ -183,7 +154,6 @@ impl BizonMatrix {
         None
     }
 
-    /// Находим самую пустую матрицу (минимальное matrix_fill)
     fn find_emptiest_matrix(&self) -> AccountId {
         let mut min_fill: u8 = u8::MAX;
         let mut candidate: Option<AccountId> = None;
@@ -198,7 +168,6 @@ impl BizonMatrix {
         candidate.unwrap_or_else(|| self.owner_id.clone())
     }
 
-    /// Применяем перелив к владельцу матрицы
     fn apply_spill(&mut self, owner: &AccountId) {
         let mut fill = self.matrix_fill.get(owner).unwrap_or(0);
         if fill < 10 {
@@ -211,22 +180,16 @@ impl BizonMatrix {
         }
     }
 
-    /// Полная матрица (10/10) → level up + возможный цикл x10
     fn on_matrix_full(&mut self, owner: AccountId) {
         if let Some(mut p) = self.players.get(&owner) {
             p.level += 1;
-            // каждые 10 закрытий — цикл x10
             if p.level >= 10 {
                 p.cycles += 1;
                 p.level = 0;
-                // здесь можно добавить запись в глобальный слот x100
             }
             self.players.insert(&owner, &p);
-
-            // сбрасываем локальную матрицу
             self.matrix_fill.insert(&owner, &0);
 
-            // и этого же владельца кидаем как перелив в самую пустую матрицу
             let emptiest = self.find_emptiest_matrix();
             if emptiest != owner {
                 self.apply_spill(&emptiest);
@@ -234,8 +197,6 @@ impl BizonMatrix {
         }
     }
 
-    /// Начисление ежедневного пула:
-    /// переводим daily_pool на pending_balance всем.
     pub fn distribute_daily(&mut self) {
         let now = env::block_timestamp();
         let day_ns: u64 = 86_400_000_000_000;
@@ -266,8 +227,6 @@ impl BizonMatrix {
         self.last_daily_ts = now;
     }
 
-    /// Агрегированный клейм ВСЕГО что накопилось
-    #[payable]
     pub fn claim_all(&mut self) -> U128 {
         let caller = env::predecessor_account_id();
         let mut p = self.players.get(&caller).expect("Not a player");
@@ -280,7 +239,6 @@ impl BizonMatrix {
         U128(amount)
     }
 
-    /// VIEW: мой профиль
     pub fn get_my_profile(&self) -> Option<(BizonId, u8, u32, u8, U128)> {
         let caller = env::predecessor_account_id();
         self.players.get(&caller).map(|p| {
@@ -289,13 +247,11 @@ impl BizonMatrix {
         })
     }
 
-    /// VIEW: мой BIZON ID
     pub fn get_my_id(&self) -> Option<BizonId> {
         let caller = env::predecessor_account_id();
         self.account_to_id.get(&caller)
     }
 
-    /// Выключаем владельца после финального релиза
     pub fn disable_owner(&mut self) {
         assert_eq!(env::predecessor_account_id(), self.owner_id, "Not owner");
         self.owner_id = "".parse().unwrap();
