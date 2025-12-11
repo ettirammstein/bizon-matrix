@@ -17,7 +17,7 @@ pub enum StorageKey {
 
 #[derive(BorshDeserialize, BorshSerialize, Clone)]
 pub struct Player {
-    pub bizon_id: BizonId,
+    pub bizon_id: String,
     pub referrer: Option<AccountId>,
     pub join_ts: u64,
     pub level: u8,
@@ -31,8 +31,8 @@ pub struct Player {
 pub struct BizonMatrix {
     pub players: UnorderedMap<AccountId, Player>,
     pub matrix_fill: UnorderedMap<AccountId, u8>,
-    pub id_to_account: UnorderedMap<BizonId, AccountId>,
-    pub account_to_id: UnorderedMap<AccountId, BizonId>,
+    pub id_to_account: UnorderedMap<String, AccountId>,
+    pub account_to_id: UnorderedMap<AccountId, String>,
     pub next_id: u64,
     pub daily_pool: u128,
     pub monthly_pool: u128,
@@ -126,7 +126,7 @@ impl BizonMatrix {
         }
     }
 
-    fn ensure_bizon_id(&mut self, account: &AccountId) -> BizonId {
+    fn ensure_bizon_id(&mut self, account: &AccountId) -> String {
         if let Some(id) = self.account_to_id.get(account) {
             return id;
         }
@@ -252,7 +252,7 @@ impl BizonMatrix {
         }
     }
 
-    pub fn get_my_profile(&self) -> Option<(BizonId, u8, u32, u8, U128)> {
+    pub fn get_my_profile(&self) -> Option<(String, u8, u32, u8, U128)> {
         let caller = env::predecessor_account_id();
         self.players.get(&caller).map(|p| {
             let fill = self.matrix_fill.get(&caller).unwrap_or(0);
@@ -260,7 +260,7 @@ impl BizonMatrix {
         })
     }
 
-    pub fn get_my_id(&self) -> Option<BizonId> {
+    pub fn get_my_id(&self) -> Option<String> {
         let caller = env::predecessor_account_id();
         self.account_to_id.get(&caller)
     }
@@ -269,4 +269,4 @@ impl BizonMatrix {
         assert_eq!(env::predecessor_account_id(), self.owner_id, "Not owner");
         self.owner_id = "system".parse().unwrap();
     }
-}
+            }
